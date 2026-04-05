@@ -1,0 +1,19 @@
+{
+	"version": "2.0.0",
+	"tasks": [
+		{
+			"label": "build-and-package",
+			"type": "shell",
+			"command": "bun run --cwd packages/desktop-electron build; bun run --cwd packages/desktop-electron package",
+			"isBackground": false,
+			"group": "build"
+		},
+		{
+			"label": "build-opencode-cli-windows",
+			"type": "shell",
+			"command": "bun run --cwd packages/opencode build --single",
+			"isBackground": false,
+			"group": "build"
+		}
+	]
+}
