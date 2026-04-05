@@ -1500,7 +1500,7 @@ NOTE: At any point in time through this workflow you should feel free to ask the
                     iteration,
                     interactionID,
                   })
-                  .pipe(Stream.runDrain)
+                  .pipe(Stream.runDrain, Effect.orDie)
                 continue
               }
             }
@@ -1777,6 +1777,7 @@ NOTE: At any point in time through this workflow you should feel free to ask the
         Layer.provide(ToolRegistry.defaultLayer),
         Layer.provide(Truncate.layer),
         Layer.provide(Provider.defaultLayer),
+        Layer.provide(LLM.defaultLayer),
         Layer.provide(Instruction.defaultLayer),
         Layer.provide(AppFileSystem.defaultLayer),
         Layer.provide(Plugin.defaultLayer),

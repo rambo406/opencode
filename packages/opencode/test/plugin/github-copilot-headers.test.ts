@@ -5,21 +5,28 @@ import { ModelID, ProviderID } from "../../src/provider/schema"
 import { MessageID, SessionID } from "../../src/session/schema"
 import type { MessageV2 } from "../../src/session/message-v2"
 
+type Input = Parameters<typeof CopilotAuthPlugin>[0]
+type ChatInput = Parameters<NonNullable<Awaited<ReturnType<typeof CopilotAuthPlugin>>["chat.headers"]>>[0]
+
 describe("plugin.github-copilot chat headers", () => {
   test("keeps the interaction id stable and flips initiator after iteration one", async () => {
     const hooks = await CopilotAuthPlugin({
       client: {
         session: {
-          message: async () => ({ data: { parts: [] } }),
-          get: async () => ({ data: { parentID: undefined } }),
+          message: (() => Promise.resolve({ data: { parts: [] } })) as unknown as Input["client"]["session"]["message"],
+          get: (() => Promise.resolve({ data: { parentID: undefined } })) as unknown as Input["client"]["session"]["get"],
         },
+      } as Input["client"],
+      project: {
+        id: "project-1",
+        worktree: "C:/opencode-test",
+        time: { created: Date.now() },
       },
-      project: "",
       worktree: "",
       directory: "C:/opencode-test",
       serverUrl: new URL("http://localhost:4096"),
       $: Bun.$,
-    } satisfies Parameters<typeof CopilotAuthPlugin>[0])
+    } satisfies Input)
 
     const hook = hooks["chat.headers"]
     expect(hook).toBeDefined()
@@ -45,7 +52,11 @@ describe("plugin.github-copilot chat headers", () => {
         modelID: model.id,
       },
     } satisfies MessageV2.User
-    const provider = ProviderTest.info({ id: model.providerID, name: "GitHub Copilot" }, model)
+    const provider: ChatInput["provider"] = {
+      source: "config",
+      info: ProviderTest.info({ id: model.providerID, name: "GitHub Copilot" }, model),
+      options: {},
+    }
     const interactionID = "interaction-1"
 
     const first = { headers: {} as Record<string, string> }

@@ -138,6 +138,10 @@ function timeout(ms: number) {
   })
 }
 
+function meta<T extends object>(input: T): T & Pick<LLM.StreamInput, "iteration" | "interactionID"> {
+  return { ...input, iteration: 1, interactionID: "test-interaction" }
+}
+
 function waitStreamingRequest(pathname: string) {
   const request = deferred<Capture>()
   const requestAborted = deferred<void>()
@@ -347,7 +351,7 @@ describe("session.llm.stream", () => {
           variant: "high",
         } satisfies MessageV2.User
 
-        const stream = await LLM.stream({
+        const stream = await LLM.stream(meta({
           user,
           sessionID,
           model: resolved,
@@ -356,7 +360,7 @@ describe("session.llm.stream", () => {
           abort: new AbortController().signal,
           messages: [{ role: "user", content: "Hello" }],
           tools: {},
-        })
+        }))
 
         for await (const _ of stream.fullStream) {
         }
@@ -436,7 +440,7 @@ describe("session.llm.stream", () => {
         } satisfies MessageV2.User
 
         const ctrl = new AbortController()
-        const result = await LLM.stream({
+        const result = await LLM.stream(meta({
           user,
           sessionID,
           model: resolved,
@@ -445,7 +449,7 @@ describe("session.llm.stream", () => {
           abort: ctrl.signal,
           messages: [{ role: "user", content: "Hello" }],
           tools: {},
-        })
+        }))
 
         const iter = result.fullStream[Symbol.asyncIterator]()
         await pending.request
@@ -514,7 +518,7 @@ describe("session.llm.stream", () => {
         const run = runPromiseExit(
           (svc) =>
             svc
-              .stream({
+              .stream(meta({
                 user,
                 sessionID,
                 model: resolved,
@@ -522,7 +526,7 @@ describe("session.llm.stream", () => {
                 system: ["You are a helpful assistant."],
                 messages: [{ role: "user", content: "Hello" }],
                 tools: {},
-              })
+              }))
               .pipe(Stream.runDrain),
           { signal: ctrl.signal },
         )
@@ -602,7 +606,7 @@ describe("session.llm.stream", () => {
           tools: { question: true },
         } satisfies MessageV2.User
 
-        const stream = await LLM.stream({
+        const stream = await LLM.stream(meta({
           user,
           sessionID,
           model: resolved,
@@ -618,7 +622,7 @@ describe("session.llm.stream", () => {
               execute: async () => ({ output: "" }),
             }),
           },
-        })
+        }))
 
         for await (const _ of stream.fullStream) {
         }
@@ -721,7 +725,7 @@ describe("session.llm.stream", () => {
           variant: "high",
         } satisfies MessageV2.User
 
-        const stream = await LLM.stream({
+        const stream = await LLM.stream(meta({
           user,
           sessionID,
           model: resolved,
@@ -730,7 +734,7 @@ describe("session.llm.stream", () => {
           abort: new AbortController().signal,
           messages: [{ role: "user", content: "Hello" }],
           tools: {},
-        })
+        }))
 
         for await (const _ of stream.fullStream) {
         }
@@ -841,7 +845,7 @@ describe("session.llm.stream", () => {
           model: { providerID: ProviderID.make("openai"), modelID: resolved.id },
         } satisfies MessageV2.User
 
-        const stream = await LLM.stream({
+        const stream = await LLM.stream(meta({
           user,
           sessionID,
           model: resolved,
@@ -863,7 +867,7 @@ describe("session.llm.stream", () => {
             },
           ] as ModelMessage[],
           tools: {},
-        })
+        }))
 
         for await (const _ of stream.fullStream) {
         }
@@ -967,7 +971,7 @@ describe("session.llm.stream", () => {
           model: { providerID: ProviderID.make("minimax"), modelID: ModelID.make("MiniMax-M2.7") },
         } satisfies MessageV2.User
 
-        const stream = await LLM.stream({
+        const stream = await LLM.stream(meta({
           user,
           sessionID,
           model: resolved,
@@ -976,7 +980,7 @@ describe("session.llm.stream", () => {
           abort: new AbortController().signal,
           messages: [{ role: "user", content: "Hello" }],
           tools: {},
-        })
+        }))
 
         for await (const _ of stream.fullStream) {
         }
@@ -1068,7 +1072,7 @@ describe("session.llm.stream", () => {
           model: { providerID: ProviderID.make(providerID), modelID: resolved.id },
         } satisfies MessageV2.User
 
-        const stream = await LLM.stream({
+        const stream = await LLM.stream(meta({
           user,
           sessionID,
           model: resolved,
@@ -1077,7 +1081,7 @@ describe("session.llm.stream", () => {
           abort: new AbortController().signal,
           messages: [{ role: "user", content: "Hello" }],
           tools: {},
-        })
+        }))
 
         for await (const _ of stream.fullStream) {
         }

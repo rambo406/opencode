@@ -268,6 +268,8 @@ When constructing the summary, try to stick to this template:
               },
             ],
             model,
+            iteration: 1,
+            interactionID: crypto.randomUUID(),
           })
           .pipe(Effect.onInterrupt(() => processor.abort()))
 

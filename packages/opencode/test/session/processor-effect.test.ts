@@ -92,6 +92,10 @@ function defer<T>() {
   return { promise, resolve }
 }
 
+function meta<T extends object>(input: T): T & Pick<LLM.StreamInput, "iteration" | "interactionID"> {
+  return { ...input, iteration: 1, interactionID: "test-interaction" }
+}
+
 const user = Effect.fn("TestSession.user")(function* (sessionID: SessionID, text: string) {
   const session = yield* Session.Service
   const msg = yield* session.updateMessage({
@@ -189,7 +193,7 @@ it.live("session.processor effect tests capture llm input cleanly", () =>
           model: mdl,
         })
 
-        const input = {
+        const input = meta({
           user: {
             id: parent.id,
             sessionID: chat.id,
@@ -204,7 +208,7 @@ it.live("session.processor effect tests capture llm input cleanly", () =>
           system: [],
           messages: [{ role: "user", content: "hi" }],
           tools: {},
-        } satisfies LLM.StreamInput
+        }) satisfies LLM.StreamInput
 
         const value = yield* handle.process(input)
         const parts = MessageV2.parts(msg.id)
@@ -237,7 +241,7 @@ it.live("session.processor effect tests stop after token overflow requests compa
           model: mdl,
         })
 
-        const value = yield* handle.process({
+        const value = yield* handle.process(meta({
           user: {
             id: parent.id,
             sessionID: chat.id,
@@ -252,7 +256,7 @@ it.live("session.processor effect tests stop after token overflow requests compa
           system: [],
           messages: [{ role: "user", content: "compact" }],
           tools: {},
-        })
+        }))
 
         const parts = MessageV2.parts(msg.id)
 
@@ -282,7 +286,7 @@ it.live("session.processor effect tests capture reasoning from http mock", () =>
           model: mdl,
         })
 
-        const value = yield* handle.process({
+        const value = yield* handle.process(meta({
           user: {
             id: parent.id,
             sessionID: chat.id,
@@ -297,7 +301,7 @@ it.live("session.processor effect tests capture reasoning from http mock", () =>
           system: [],
           messages: [{ role: "user", content: "reason" }],
           tools: {},
-        })
+        }))
 
         const parts = MessageV2.parts(msg.id)
         const reasoning = parts.find((part): part is MessageV2.ReasoningPart => part.type === "reasoning")
@@ -330,7 +334,7 @@ it.live("session.processor effect tests reset reasoning state across retries", (
           model: mdl,
         })
 
-        const value = yield* handle.process({
+        const value = yield* handle.process(meta({
           user: {
             id: parent.id,
             sessionID: chat.id,
@@ -345,7 +349,7 @@ it.live("session.processor effect tests reset reasoning state across retries", (
           system: [],
           messages: [{ role: "user", content: "reason" }],
           tools: {},
-        })
+        }))
 
         const parts = MessageV2.parts(msg.id)
         const reasoning = parts.filter((part): part is MessageV2.ReasoningPart => part.type === "reasoning")
@@ -377,7 +381,7 @@ it.live("session.processor effect tests do not retry unknown json errors", () =>
           model: mdl,
         })
 
-        const value = yield* handle.process({
+        const value = yield* handle.process(meta({
           user: {
             id: parent.id,
             sessionID: chat.id,
@@ -392,7 +396,7 @@ it.live("session.processor effect tests do not retry unknown json errors", () =>
           system: [],
           messages: [{ role: "user", content: "json" }],
           tools: {},
-        })
+        }))
 
         expect(value).toBe("stop")
         expect(yield* llm.calls).toBe(1)
@@ -421,7 +425,7 @@ it.live("session.processor effect tests retry recognized structured json errors"
           model: mdl,
         })
 
-        const value = yield* handle.process({
+        const value = yield* handle.process(meta({
           user: {
             id: parent.id,
             sessionID: chat.id,
@@ -436,7 +440,7 @@ it.live("session.processor effect tests retry recognized structured json errors"
           system: [],
           messages: [{ role: "user", content: "retry json" }],
           tools: {},
-        })
+        }))
 
         const parts = MessageV2.parts(msg.id)
 
@@ -474,7 +478,7 @@ it.live("session.processor effect tests publish retry status updates", () =>
           model: mdl,
         })
 
-        const value = yield* handle.process({
+        const value = yield* handle.process(meta({
           user: {
             id: parent.id,
             sessionID: chat.id,
@@ -489,7 +493,7 @@ it.live("session.processor effect tests publish retry status updates", () =>
           system: [],
           messages: [{ role: "user", content: "retry" }],
           tools: {},
-        })
+        }))
 
         off()
 
@@ -519,7 +523,7 @@ it.live("session.processor effect tests compact on structured context overflow",
           model: mdl,
         })
 
-        const value = yield* handle.process({
+        const value = yield* handle.process(meta({
           user: {
             id: parent.id,
             sessionID: chat.id,
@@ -534,7 +538,7 @@ it.live("session.processor effect tests compact on structured context overflow",
           system: [],
           messages: [{ role: "user", content: "compact json" }],
           tools: {},
-        })
+        }))
 
         expect(value).toBe("compact")
         expect(yield* llm.calls).toBe(1)
@@ -563,7 +567,7 @@ it.live("session.processor effect tests mark pending tools as aborted on cleanup
         })
 
         const run = yield* handle
-          .process({
+          .process(meta({
             user: {
               id: parent.id,
               sessionID: chat.id,
@@ -578,7 +582,7 @@ it.live("session.processor effect tests mark pending tools as aborted on cleanup
             system: [],
             messages: [{ role: "user", content: "tool abort" }],
             tools: {},
-          })
+          }))
           .pipe(Effect.forkChild)
 
         yield* llm.wait(1)
@@ -643,7 +647,7 @@ it.live("session.processor effect tests record aborted errors and idle state", (
         })
 
         const run = yield* handle
-          .process({
+          .process(meta({
             user: {
               id: parent.id,
               sessionID: chat.id,
@@ -658,7 +662,7 @@ it.live("session.processor effect tests record aborted errors and idle state", (
             system: [],
             messages: [{ role: "user", content: "abort" }],
             tools: {},
-          })
+          }))
           .pipe(Effect.forkChild)
 
         yield* llm.wait(1)
@@ -709,7 +713,7 @@ it.live("session.processor effect tests mark interruptions aborted without manua
         })
 
         const run = yield* handle
-          .process({
+          .process(meta({
             user: {
               id: parent.id,
               sessionID: chat.id,
@@ -724,7 +728,7 @@ it.live("session.processor effect tests mark interruptions aborted without manua
             system: [],
             messages: [{ role: "user", content: "interrupt" }],
             tools: {},
-          })
+          }))
           .pipe(Effect.forkChild)
 
         yield* llm.wait(1)
