@@ -748,6 +748,10 @@ export const dict = {
 
   "settings.models.title": "模型",
   "settings.models.description": "模型设置将在此处可配置。",
+  "settings.reasoning.title": "Reasoning",
+  "settings.reasoning.description": "Set the default reasoning level for each GitHub Copilot model.",
+  "settings.reasoning.empty": "No GitHub Copilot models with reasoning variants available.",
+  "settings.reasoning.default": "Default",
 
   "settings.agents.title": "智能体",
   "settings.agents.description": "智能体设置将在此处可配置。",

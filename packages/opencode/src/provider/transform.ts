@@ -465,9 +465,14 @@ export namespace ProviderTransform {
           return {}
         }
         if (model.id.includes("claude")) {
-          return {
-            thinking: { thinking_budget: 4000 },
-          }
+          const max = Math.max(1024, model.limit.output - 1)
+          const budgets = [
+            ["low", Math.min(4_000, max)],
+            ["medium", Math.min(8_000, max)],
+            ["high", Math.min(16_000, max)],
+            ["xhigh", Math.min(32_000, max)],
+          ].filter(([, budget], index, arr) => index === 0 || budget > arr[index - 1]![1])
+          return Object.fromEntries(budgets.map(([effort, thinking_budget]) => [effort, { thinking_budget }]))
         }
         const copilotEfforts = iife(() => {
           if (id.includes("5.1-codex-max") || id.includes("5.2") || id.includes("5.3"))

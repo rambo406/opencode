@@ -76,61 +76,46 @@ export async function CopilotAuthPlugin(input: PluginInput): Promise<Hooks> {
             if (info.type !== "oauth") return fetch(request, init)
 
             const url = request instanceof URL ? request.href : request.toString()
-            const { isVision, isAgent } = iife(() => {
+            const isVision = iife(() => {
               try {
                 const body = typeof init?.body === "string" ? JSON.parse(init.body) : init?.body
 
                 // Completions API
                 if (body?.messages && url.includes("completions")) {
-                  const last = body.messages[body.messages.length - 1]
-                  return {
-                    isVision: body.messages.some(
-                      (msg: any) =>
-                        Array.isArray(msg.content) && msg.content.some((part: any) => part.type === "image_url"),
-                    ),
-                    isAgent: last?.role !== "user",
-                  }
+                  return body.messages.some(
+                    (msg: any) =>
+                      Array.isArray(msg.content) && msg.content.some((part: any) => part.type === "image_url"),
+                  )
                 }
 
                 // Responses API
                 if (body?.input) {
-                  const last = body.input[body.input.length - 1]
-                  return {
-                    isVision: body.input.some(
-                      (item: any) =>
-                        Array.isArray(item?.content) && item.content.some((part: any) => part.type === "input_image"),
-                    ),
-                    isAgent: last?.role !== "user",
-                  }
+                  return body.input.some(
+                    (item: any) =>
+                      Array.isArray(item?.content) && item.content.some((part: any) => part.type === "input_image"),
+                  )
                 }
 
                 // Messages API
                 if (body?.messages) {
-                  const last = body.messages[body.messages.length - 1]
-                  const hasNonToolCalls =
-                    Array.isArray(last?.content) && last.content.some((part: any) => part?.type !== "tool_result")
-                  return {
-                    isVision: body.messages.some(
-                      (item: any) =>
-                        Array.isArray(item?.content) &&
-                        item.content.some(
-                          (part: any) =>
-                            part?.type === "image" ||
-                            // images can be nested inside tool_result content
-                            (part?.type === "tool_result" &&
-                              Array.isArray(part?.content) &&
-                              part.content.some((nested: any) => nested?.type === "image")),
-                        ),
-                    ),
-                    isAgent: !(last?.role === "user" && hasNonToolCalls),
-                  }
+                  return body.messages.some(
+                    (item: any) =>
+                      Array.isArray(item?.content) &&
+                      item.content.some(
+                        (part: any) =>
+                          part?.type === "image" ||
+                          // images can be nested inside tool_result content
+                          (part?.type === "tool_result" &&
+                            Array.isArray(part?.content) &&
+                            part.content.some((nested: any) => nested?.type === "image")),
+                      ),
+                  )
                 }
               } catch {}
-              return { isVision: false, isAgent: false }
+              return false
             })
 
             const headers: Record<string, string> = {
-              "x-initiator": isAgent ? "agent" : "user",
               ...(init?.headers as Record<string, string>),
               "User-Agent": `opencode/${Installation.VERSION}`,
               Authorization: `Bearer ${info.refresh}`,
@@ -316,6 +301,16 @@ export async function CopilotAuthPlugin(input: PluginInput): Promise<Hooks> {
         output.headers["anthropic-beta"] = "interleaved-thinking-2025-05-14"
       }
 
+      // Premium billing headers
+      output.headers["x-initiator"] = incoming.iteration === 1 ? "user" : "agent"
+      output.headers["x-interaction-id"] = incoming.interactionID
+      const rid = crypto.randomUUID()
+      output.headers["x-request-id"] = rid
+      output.headers["x-agent-task-id"] = rid
+      output.headers["x-interaction-type"] = "conversation-agent"
+      output.headers["x-github-api-version"] = "2025-05-01"
+
+      // Compaction requests are always agent-initiated
       const parts = await sdk.session
         .message({
           path: {
@@ -334,6 +329,7 @@ export async function CopilotAuthPlugin(input: PluginInput): Promise<Hooks> {
         return
       }
 
+      // Subagent sessions are always agent-initiated
       const session = await sdk.session
         .get({
           path: {
@@ -346,7 +342,6 @@ export async function CopilotAuthPlugin(input: PluginInput): Promise<Hooks> {
         })
         .catch(() => undefined)
       if (!session || !session.data.parentID) return
-      // mark subagent sessions as agent initiated matching standard that other copilot tools have
       output.headers["x-initiator"] = "agent"
     },
   }

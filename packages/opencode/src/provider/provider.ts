@@ -849,6 +849,7 @@ export namespace Provider {
       options: z.record(z.string(), z.any()),
       headers: z.record(z.string(), z.string()),
       release_date: z.string(),
+      default_variant: z.string().optional(),
       variants: z.record(z.string(), z.record(z.string(), z.any())).optional(),
     })
     .meta({
@@ -1110,6 +1111,7 @@ export namespace Provider {
                 headers: mergeDeep(existingModel?.headers ?? {}, model.headers ?? {}),
                 family: model.family ?? existingModel?.family ?? "",
                 release_date: model.release_date ?? existingModel?.release_date ?? "",
+                default_variant: model.default_variant ?? existingModel?.default_variant,
                 variants: {},
               }
               const merged = mergeDeep(ProviderTransform.variants(parsedModel), model.variants ?? {})
@@ -1269,7 +1271,9 @@ export namespace Provider {
 
               model.variants = mapValues(ProviderTransform.variants(model), (v) => v)
 
-              const configVariants = configProvider?.models?.[modelID]?.variants
+              const configModel = configProvider?.models?.[modelID]
+              if (configModel?.default_variant) model.default_variant = configModel.default_variant
+              const configVariants = configModel?.variants
               if (configVariants && model.variants) {
                 const merged = mergeDeep(model.variants, configVariants)
                 model.variants = mapValues(

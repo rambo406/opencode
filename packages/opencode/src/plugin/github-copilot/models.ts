@@ -43,14 +43,36 @@ export namespace CopilotModels {
   type Item = z.infer<typeof schema>["data"][number]
 
   function build(key: string, remote: Item, url: string, prev?: Model): Model {
+    const efforts = remote.capabilities.supports.reasoning_effort ?? []
     const reasoning =
       !!remote.capabilities.supports.adaptive_thinking ||
-      !!remote.capabilities.supports.reasoning_effort?.length ||
+      efforts.length > 0 ||
       remote.capabilities.supports.max_thinking_budget !== undefined ||
       remote.capabilities.supports.min_thinking_budget !== undefined
     const image =
       (remote.capabilities.supports.vision ?? false) ||
       (remote.capabilities.limits.vision?.supported_media_types ?? []).some((item) => item.startsWith("image/"))
+    const variants =
+      efforts.length > 0
+        ? {
+            ...(prev?.variants ?? {}),
+            ...Object.fromEntries(
+              ["low", "medium", "high", "xhigh"]
+                .filter((effort) => !efforts.includes(effort))
+                .map((effort) => [effort, { disabled: true }]),
+            ),
+            ...Object.fromEntries(
+              efforts.map((effort) => [
+                effort,
+                {
+                  reasoningEffort: effort,
+                  reasoningSummary: "auto",
+                  include: ["reasoning.encrypted_content"],
+                },
+              ]),
+            ),
+          }
+        : (prev?.variants ?? {})
 
     return {
       id: key,
@@ -101,7 +123,7 @@ export namespace CopilotModels {
       release_date:
         prev?.release_date ??
         (remote.version.startsWith(`${remote.id}-`) ? remote.version.slice(remote.id.length + 1) : remote.version),
-      variants: prev?.variants ?? {},
+      variants,
     }
   }
 

@@ -1179,6 +1179,10 @@ export namespace ACP {
       if (currentVariant && !availableVariants.includes(currentVariant)) {
         this.sessionManager.setVariant(sessionId, undefined)
       }
+      if (!this.sessionManager.getVariant(sessionId)) {
+        const configured = modelDefaultVariant(entries, model)
+        if (configured) this.sessionManager.setVariant(sessionId, configured)
+      }
       const availableModels = buildAvailableModels(entries, { includeVariants: true })
       const modeState = await this.resolveModeState(directory, sessionId)
       const currentModeId = modeState.currentModeId
@@ -1676,6 +1680,25 @@ export namespace ACP {
     const modelInfo = provider.models[model.modelID]
     if (!modelInfo?.variants) return []
     return Object.keys(modelInfo.variants)
+  }
+
+  export function modelDefaultVariant(
+    providers: Array<{ id: string; models: Record<string, { default_variant?: string; variants?: Record<string, any> }> }>,
+    model: { providerID: ProviderID; modelID: ModelID },
+  ): string | undefined {
+    const provider = providers.find((entry) => entry.id === model.providerID)
+    if (!provider) return undefined
+    const info = provider.models[model.modelID]
+    if (!info?.default_variant) return undefined
+    if (!info.variants?.[info.default_variant]) {
+      log.warn("configured default_variant not available for model", {
+        providerID: model.providerID,
+        modelID: model.modelID,
+        variant: info.default_variant,
+      })
+      return undefined
+    }
+    return info.default_variant
   }
 
   function buildAvailableModels(

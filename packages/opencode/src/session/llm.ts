@@ -35,6 +35,8 @@ export namespace LLM {
     tools: Record<string, Tool>
     retries?: number
     toolChoice?: "auto" | "required" | "none"
+    iteration: number
+    interactionID: string
   }
 
   export type StreamRequest = StreamInput & {
@@ -187,6 +189,8 @@ export namespace LLM {
         model: input.model,
         provider,
         message: input.user,
+        iteration: input.iteration,
+        interactionID: input.interactionID,
       },
       {
         headers: {},

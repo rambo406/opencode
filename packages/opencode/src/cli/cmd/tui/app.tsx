@@ -39,6 +39,7 @@ import { DialogWorkspaceList } from "@tui/component/dialog-workspace-list"
 import { DialogConsoleOrg } from "@tui/component/dialog-console-org"
 import { KeybindProvider, useKeybind } from "@tui/context/keybind"
 import { ThemeProvider, useTheme } from "@tui/context/theme"
+import { DialogReasoning } from "@tui/component/dialog-reasoning"
 import { Home } from "@tui/routes/home"
 import { Session } from "@tui/routes/session"
 import { PromptHistoryProvider } from "./component/prompt/history"
@@ -606,6 +607,25 @@ function App(props: { onSnapshot?: () => Promise<string[]> }) {
       },
       onSelect: () => {
         dialog.replace(() => <DialogVariant />)
+      },
+    },
+    {
+      title: "Configure reasoning defaults",
+      value: "reasoning.list",
+      category: "Agent",
+      hidden: !sync.data.provider.some(
+        (provider) =>
+          sync.data.provider_next.connected.includes(provider.id) &&
+          Object.values(provider.models).some(
+            (model) => model.status !== "deprecated" && !!model.variants && Object.keys(model.variants).length > 0,
+          ),
+      ),
+      slash: {
+        name: "reasoning",
+        aliases: ["reasoning-defaults"],
+      },
+      onSelect: () => {
+        dialog.replace(() => <DialogReasoning />)
       },
     },
     {

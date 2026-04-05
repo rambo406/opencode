@@ -66,6 +66,7 @@ const STRUCTURED_OUTPUT_SYSTEM_PROMPT = `IMPORTANT: The user has requested struc
 
 export namespace SessionPrompt {
   const log = Log.create({ service: "session.prompt" })
+  const BOOTSTRAP_MODEL = ModelID.make("gpt-5.4-mini")
 
   export interface Interface {
     readonly assertNotBusy: (sessionID: SessionID) => Effect.Effect<void, Session.BusyError>
@@ -92,6 +93,7 @@ export namespace SessionPrompt {
       const plugin = yield* Plugin.Service
       const commands = yield* Command.Service
       const permission = yield* Permission.Service
+      const llm = yield* LLM.Service
       const fsys = yield* AppFileSystem.Service
       const mcp = yield* MCP.Service
       const lsp = yield* LSP.Service
@@ -230,6 +232,8 @@ export namespace SessionPrompt {
             sessionID: input.session.id,
             retries: 2,
             messages: [{ role: "user", content: "Generate a title for this conversation:\n" }, ...msgs],
+            iteration: 1,
+            interactionID: crypto.randomUUID(),
           })
           return result.text
         })
@@ -946,6 +950,19 @@ NOTE: At any point in time through this workflow you should feel free to ask the
         return yield* provider.defaultModel()
       })
 
+      const getBootstrap = Effect.fn("SessionPrompt.getBootstrap")(function* (
+        model: Provider.Model,
+        session: Session.Info,
+      ) {
+        if (!model.providerID.includes("github-copilot")) return
+        if (session.parentID) return
+        if (model.id === BOOTSTRAP_MODEL) return
+
+        const exit = yield* provider.getModel(model.providerID, BOOTSTRAP_MODEL).pipe(Effect.exit)
+        if (Exit.isFailure(exit)) return
+        return exit.value
+      })
+
       const createUserMessage = Effect.fn("SessionPrompt.createUserMessage")(function* (input: PromptInput) {
         const agentName = input.agent || (yield* agents.defaultAgent())
         const ag = yield* agents.get(agentName)
@@ -960,12 +977,15 @@ NOTE: At any point in time through this workflow you should feel free to ask the
         const model = input.model ?? ag.model ?? (yield* lastModel(input.sessionID))
         const same = ag.model && model.providerID === ag.model.providerID && model.modelID === ag.model.modelID
         const full =
-          !input.variant && ag.variant && same
+          !input.variant
             ? yield* provider
                 .getModel(model.providerID, model.modelID)
                 .pipe(Effect.catch(() => Effect.succeed(undefined)))
             : undefined
-        const variant = input.variant ?? (ag.variant && full?.variants?.[ag.variant] ? ag.variant : undefined)
+        const variant =
+          input.variant ??
+          (ag.variant && same && full?.variants?.[ag.variant] ? ag.variant : undefined) ??
+          (full?.default_variant && full?.variants?.[full.default_variant] ? full.default_variant : undefined)
 
         const info: MessageV2.Info = {
           id: input.messageID ?? MessageID.ascending(),
@@ -1339,11 +1359,14 @@ NOTE: At any point in time through this workflow you should feel free to ask the
           const ctx = yield* InstanceState.context
           let structured: unknown | undefined
           let step = 0
+          let iteration = 0
+          let booted = false
           const session = yield* sessions.get(sessionID)
+          const interactionID = crypto.randomUUID()
 
           while (true) {
             yield* status.set(sessionID, { type: "busy" })
-            log.info("loop", { step, sessionID })
+            log.info("loop", { step, iteration, sessionID })
 
             let msgs = yield* MessageV2.filterCompactedEffect(sessionID)
 
@@ -1380,8 +1403,7 @@ NOTE: At any point in time through this workflow you should feel free to ask the
               break
             }
 
-            step++
-            if (step === 1)
+            if (iteration === 0)
               yield* title({
                 session,
                 modelID: lastUser.model.modelID,
@@ -1389,11 +1411,11 @@ NOTE: At any point in time through this workflow you should feel free to ask the
                 history: msgs,
               }).pipe(Effect.ignore, Effect.forkIn(scope))
 
-            const model = yield* getModel(lastUser.model.providerID, lastUser.model.modelID, sessionID)
+            const selected = yield* getModel(lastUser.model.providerID, lastUser.model.modelID, sessionID)
             const task = tasks.pop()
 
             if (task?.type === "subtask") {
-              yield* handleSubtask({ task, model, lastUser, sessionID, session, msgs })
+              yield* handleSubtask({ task, model: selected, lastUser, sessionID, session, msgs })
               continue
             }
 
@@ -1412,7 +1434,7 @@ NOTE: At any point in time through this workflow you should feel free to ask the
             if (
               lastFinished &&
               lastFinished.summary !== true &&
-              (yield* compaction.isOverflow({ tokens: lastFinished.tokens, model }))
+              (yield* compaction.isOverflow({ tokens: lastFinished.tokens, model: selected }))
             ) {
               yield* compaction.create({ sessionID, agent: lastUser.agent, model: lastUser.model, auto: true })
               continue
@@ -1427,8 +1449,67 @@ NOTE: At any point in time through this workflow you should feel free to ask the
               throw error
             }
             const maxSteps = agent.steps ?? Infinity
-            const isLastStep = step >= maxSteps
             msgs = yield* insertReminders({ messages: msgs, agent, session })
+
+            if (step > 1 && lastFinished) {
+              for (const m of msgs) {
+                if (m.info.role !== "user" || m.info.id <= lastFinished.id) continue
+                for (const p of m.parts) {
+                  if (p.type !== "text" || p.ignored || p.synthetic) continue
+                  if (!p.text.trim()) continue
+                  p.text = [
+                    "<system-reminder>",
+                    "The user sent the following message:",
+                    p.text,
+                    "",
+                    "Please address this message and continue with your tasks.",
+                    "</system-reminder>",
+                  ].join("\n")
+                }
+              }
+            }
+
+            yield* plugin.trigger("experimental.chat.messages.transform", {}, { messages: msgs })
+
+            const [skills, env, instructions, modelMsgs] = yield* Effect.all([
+              Effect.promise(() => SystemPrompt.skills(agent)),
+              Effect.promise(() => SystemPrompt.environment(selected)),
+              instruction.system().pipe(Effect.orDie),
+              Effect.promise(() => MessageV2.toModelMessages(msgs, selected)),
+            ])
+            const base = [...env, ...(skills ? [skills] : []), ...instructions]
+            const format = lastUser.format ?? { type: "text" as const }
+
+            if (!booted) {
+              const bootstrap = yield* getBootstrap(selected, session)
+              if (bootstrap) {
+                iteration++
+                booted = true
+                yield* llm
+                  .stream({
+                    user: lastUser,
+                    agent,
+                    permission: session.permission,
+                    sessionID,
+                    parentSessionID: session.parentID,
+                    system: base,
+                    messages: modelMsgs,
+                    tools: {},
+                    model: bootstrap,
+                    toolChoice: "none",
+                    iteration,
+                    interactionID,
+                  })
+                  .pipe(Stream.runDrain)
+                continue
+              }
+            }
+
+            step++
+            iteration++
+            const isLastStep = step >= maxSteps
+            const system = [...base]
+            if (format.type === "json_schema") system.push(STRUCTURED_OUTPUT_SYSTEM_PROMPT)
 
             const msg: MessageV2.Assistant = {
               id: MessageID.ascending(),
@@ -1440,8 +1521,8 @@ NOTE: At any point in time through this workflow you should feel free to ask the
               path: { cwd: ctx.directory, root: ctx.worktree },
               cost: 0,
               tokens: { input: 0, output: 0, reasoning: 0, cache: { read: 0, write: 0 } },
-              modelID: model.id,
-              providerID: model.providerID,
+              modelID: selected.id,
+              providerID: selected.providerID,
               time: { created: Date.now() },
               sessionID,
             }
@@ -1449,7 +1530,7 @@ NOTE: At any point in time through this workflow you should feel free to ask the
             const handle = yield* processor.create({
               assistantMessage: msg,
               sessionID,
-              model,
+              model: selected,
             })
 
             const outcome: "break" | "continue" = yield* Effect.onExit(
@@ -1460,7 +1541,7 @@ NOTE: At any point in time through this workflow you should feel free to ask the
                 const tools = yield* resolveTools({
                   agent,
                   session,
-                  model,
+                  model: selected,
                   tools: lastUser.tools,
                   processor: handle,
                   bypassAgentCheck,
@@ -1478,35 +1559,6 @@ NOTE: At any point in time through this workflow you should feel free to ask the
 
                 if (step === 1) SessionSummary.summarize({ sessionID, messageID: lastUser.id })
 
-                if (step > 1 && lastFinished) {
-                  for (const m of msgs) {
-                    if (m.info.role !== "user" || m.info.id <= lastFinished.id) continue
-                    for (const p of m.parts) {
-                      if (p.type !== "text" || p.ignored || p.synthetic) continue
-                      if (!p.text.trim()) continue
-                      p.text = [
-                        "<system-reminder>",
-                        "The user sent the following message:",
-                        p.text,
-                        "",
-                        "Please address this message and continue with your tasks.",
-                        "</system-reminder>",
-                      ].join("\n")
-                    }
-                  }
-                }
-
-                yield* plugin.trigger("experimental.chat.messages.transform", {}, { messages: msgs })
-
-                const [skills, env, instructions, modelMsgs] = yield* Effect.all([
-                  Effect.promise(() => SystemPrompt.skills(agent)),
-                  Effect.promise(() => SystemPrompt.environment(model)),
-                  instruction.system().pipe(Effect.orDie),
-                  Effect.promise(() => MessageV2.toModelMessages(msgs, model)),
-                ])
-                const system = [...env, ...(skills ? [skills] : []), ...instructions]
-                const format = lastUser.format ?? { type: "text" as const }
-                if (format.type === "json_schema") system.push(STRUCTURED_OUTPUT_SYSTEM_PROMPT)
                 const result = yield* handle.process({
                   user: lastUser,
                   agent,
@@ -1516,8 +1568,10 @@ NOTE: At any point in time through this workflow you should feel free to ask the
                   system,
                   messages: [...modelMsgs, ...(isLastStep ? [{ role: "assistant" as const, content: MAX_STEPS }] : [])],
                   tools,
-                  model,
+                  model: selected,
                   toolChoice: format.type === "json_schema" ? "required" : undefined,
+                  iteration,
+                  interactionID,
                 })
 
                 if (structured !== undefined) {

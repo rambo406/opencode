@@ -14,6 +14,11 @@ import { useSDK } from "./sdk"
 import { RGBA } from "@opentui/core"
 import { Filesystem } from "@/util/filesystem"
 
+type Ref = {
+  providerID: string
+  modelID: string
+}
+
 export const { use: useLocal, provider: LocalProvider } = createSimpleContext({
   name: "Local",
   init: () => {
@@ -201,6 +206,14 @@ export const { use: useLocal, provider: LocalProvider } = createSimpleContext({
         )
       })
 
+      function pick(ref?: Ref) {
+        return ref ?? currentModel()
+      }
+
+      function key(ref: Ref) {
+        return `${ref.providerID}/${ref.modelID}`
+      }
+
       return {
         current: currentModel,
         get ready() {
@@ -321,47 +334,46 @@ export const { use: useLocal, provider: LocalProvider } = createSimpleContext({
           })
         },
         variant: {
-          selected() {
-            const m = currentModel()
+          selected(ref?: Ref) {
+            const m = pick(ref)
             if (!m) return undefined
-            const key = `${m.providerID}/${m.modelID}`
-            return modelStore.variant[key]
+            return modelStore.variant[key(m)]
           },
-          current() {
-            const v = this.selected()
+          current(ref?: Ref) {
+            const v = this.selected(ref)
             if (!v) return undefined
-            if (!this.list().includes(v)) return undefined
+            if (v === "default") return undefined
+            if (!this.list(ref).includes(v)) return undefined
             return v
           },
-          list() {
-            const m = currentModel()
+          list(ref?: Ref) {
+            const m = pick(ref)
             if (!m) return []
             const provider = sync.data.provider.find((x) => x.id === m.providerID)
             const info = provider?.models[m.modelID]
             if (!info?.variants) return []
             return Object.keys(info.variants)
           },
-          set(value: string | undefined) {
-            const m = currentModel()
+          set(value: string | undefined, ref?: Ref) {
+            const m = pick(ref)
             if (!m) return
-            const key = `${m.providerID}/${m.modelID}`
-            setModelStore("variant", key, value ?? "default")
+            setModelStore("variant", key(m), value ?? "default")
             save()
           },
-          cycle() {
-            const variants = this.list()
+          cycle(ref?: Ref) {
+            const variants = this.list(ref)
             if (variants.length === 0) return
-            const current = this.current()
+            const current = this.current(ref)
             if (!current) {
-              this.set(variants[0])
+              this.set(variants[0], ref)
               return
             }
             const index = variants.indexOf(current)
             if (index === -1 || index === variants.length - 1) {
-              this.set(undefined)
+              this.set(undefined, ref)
               return
             }
-            this.set(variants[index + 1])
+            this.set(variants[index + 1], ref)
           },
         },
       }

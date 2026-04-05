@@ -793,6 +793,10 @@ export namespace Config {
         .record(
           z.string(),
           ModelsDev.Model.partial().extend({
+            default_variant: z
+              .string()
+              .optional()
+              .describe("Default reasoning variant for this model (e.g., low, medium, high)"),
             variants: z
               .record(
                 z.string(),
